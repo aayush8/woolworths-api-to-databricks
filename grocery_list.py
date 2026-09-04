@@ -5,5 +5,6 @@ def get_grocery_list():
         "Woolworths Peanuts Unsalted 375g",
         "Cloverdale Pure Honey Twist & Squeeze 375g",
         "Woolworths Wholemeal Soft Sandwich Bread 650g",
-        "Uncle Tobys Plus Antioxidant Breakfast Cereal 675g"
+        "Uncle Tobys Plus Antioxidant Breakfast Cereal 675g",
+        "U by Kotex Ultrathin Overnight Pads Long With Wings"
     ]

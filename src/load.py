@@ -6,6 +6,7 @@ import pandas as pd
 
 load_dotenv()  # Load environment variables from .env file
 
+#we will use this load function to load the raw data we got from api just like that
 def load(df: pd.DataFrame, view: bool = False) -> str:
     cursor = None
     connection = None
@@ -16,7 +17,7 @@ def load(df: pd.DataFrame, view: bool = False) -> str:
             access_token=os.getenv("DATABRICKS_ACCESS_TOKEN")
         )
         cursor = connection.cursor()
-        cursor.execute("CREATE DATABASE IF NOT EXISTS woolis")
+        cursor.execute("CREATE SCHEMA IF NOT EXISTS woolis")
         cursor.execute("USE woolis")
         cursor.execute(sql_commands_for_this(df, 1))
         for row in df.itertuples(index=False, name=None):
@@ -40,7 +41,6 @@ def sql_commands_for_this(df: pd.DataFrame, query_num: int) -> str:
             {', '.join([f'{col} STRING' for col in df.columns])}
         )
     """
-    rows = list(df.itertuples(index=False, name=None))
     placeholders = ", ".join(["?"] * len(df.columns))
     insert_query = f"""
         INSERT INTO products
