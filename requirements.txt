@@ -1,4 +1,4 @@
 pandas
 requests
-python-dotenv
+# python-dotenv
 databricks-sql-connector
