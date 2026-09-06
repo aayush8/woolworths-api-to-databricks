@@ -1,7 +1,36 @@
+import os
+import sys
 from datetime import datetime
+from pathlib import Path
+
+# Airflow puts only the dags folder on sys.path, and that folder is not always
+# this repo's dags/ (a standalone run defaults to ~/airflow/dags). Find the
+# project root that actually holds src/ and grocery_list.py before importing it.
+_MARKERS = ("src/etl_transform.py", "grocery_list.py")
+
+
+def _find_project_root() -> Path:
+    override = os.getenv("ETL_PROJECT_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+    # .resolve() follows symlinks, so a symlinked copy of this file still lands
+    # on the real path inside the repo.
+    for candidate in Path(__file__).resolve().parents:
+        if all((candidate / marker).exists() for marker in _MARKERS):
+            return candidate
+    raise RuntimeError(
+        f"Could not locate the project root above {Path(__file__).resolve()}. "
+        "Point Airflow at this repo's dags/ folder (source scripts/setup_airflow_env.sh), "
+        "symlink this file instead of copying it, or set ETL_PROJECT_ROOT."
+    )
+
+
+PROJECT_ROOT = _find_project_root()
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.python import PythonOperator
 
 from src.etl_transform import transform
 from src.extract import extract
