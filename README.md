@@ -1,377 +1,297 @@
-# Woolworths Grocery Data Pipeline
+# Woolworths API to Databricks
 
-A small end-to-end **data engineering project** that extracts Woolworths grocery product data from an API, processes the data using **Python and Pandas**, and loads the results into **Databricks** using the Databricks SQL Connector.
+A Python ETL project that retrieves grocery product data from a third-party Woolworths products API on RapidAPI, adds collection timestamps with Pandas, and appends the results to a Databricks SQL table. Apache Airflow orchestrates the pipeline, with Docker Compose providing the local runtime.
 
-The project demonstrates a simple **ETL (Extract, Transform, Load)** workflow using real-world retail product data.
+This project demonstrates API ingestion, modular Python ETL, Airflow TaskFlow dependencies, containerized orchestration, and SQL warehouse loading.
 
----
+## How it works
 
-## 🚀 Project Overview
+The DAG runs four tasks in sequence:
 
-The pipeline starts with a predefined grocery list and uses a Woolworths product API to retrieve information about each product.
+1. **`get_groceries`** reads six product search strings from `grocery_list.py`.
+2. **`extract_task`** queries the API once per grocery item and selects the first result from each successful response.
+3. **`transform_task`** creates a Pandas DataFrame, adds `date_retracted` and `time_retracted`, and returns a list of dictionaries.
+4. **`load_task`** reconstructs the DataFrame and inserts its rows into Databricks.
 
-The extracted data is then transformed into a Pandas DataFrame and enriched with the date and time when the data was retrieved.
+Airflow passes task return values through XCom. The current pipeline uses in-memory records; it does not write intermediate datasets to the mounted `data/` directory.
 
-Finally, the processed data is loaded into a Databricks database and stored in a `products` table.
+### DAG configuration
 
-### Pipeline
+| Setting | Value |
+| --- | --- |
+| DAG ID | `etl_pipeline_woolworths` |
+| Definition | `dags/etl_pipeline.py` |
+| API | Airflow TaskFlow: `@dag` and `@task` |
+| Schedule | Manual (`schedule=None`) |
+| Start date | January 1, 2026 |
+| Catchup | Disabled |
+| Initial state | Paused |
+| Task retries | None configured in the DAG; committed configuration defaults to zero |
+
+## Technology stack
+
+| Technology | Purpose |
+| --- | --- |
+| Python 3.12 | Runtime selected by the Dockerfile |
+| Apache Airflow 3.3.1 | Workflow orchestration, as pinned in the Dockerfile |
+| Docker Compose | Runs the local Airflow services and dependencies |
+| Requests | HTTP requests to RapidAPI |
+| Pandas | Record transformation and DataFrame handling |
+| python-dotenv | Loads `.env` values for direct Python execution |
+| Databricks SQL Connector | Connects to the warehouse and executes SQL |
+| PostgreSQL 16 | Airflow metadata and Celery result backend |
+| Redis 7.2 | Celery message broker |
+
+PostgreSQL stores orchestration state. Product records are stored in Databricks.
+
+## Repository layout
+
+| Path | Responsibility |
+| --- | --- |
+| `dags/etl_pipeline.py` | Defines the four Airflow tasks and their dependencies |
+| `grocery_list.py` | Product search list |
+| `src/extract.py` | API requests and first-result selection |
+| `src/etl_transform.py` | DataFrame creation and timestamp columns |
+| `src/load.py` | Databricks connection, schema/table creation, and inserts |
+| `src/view.py` | Queries `products` and returns a DataFrame |
+| `src/__init__.py` | Python package marker |
+| `Dockerfile` | Extends the Airflow image and installs project dependencies |
+| `docker-compose.yaml` | Services, environment variables, mounts, and health checks |
+| `requirements.txt` | Project Python dependencies |
+| `config/airflow.cfg` | Committed Airflow configuration |
+| `scripts/airflow.sh` | Helper for an existing local macOS Airflow environment |
+| `main.ipynb` | Runs the modular ETL functions interactively |
+| `product_info.py` | Earlier API/CSV helper; not used by the current DAG |
+| `logs/` | Airflow logs; some generated logs are currently tracked |
+
+Create `.env` locally. The `data/` and `plugins/` directories are mounted by Compose but are not required by the current ETL logic.
+
+## Run with Docker Compose
+
+### 1. Prerequisites
+
+- Docker Desktop running, with the `docker compose` command available.
+- Resources for the multi-service stack. The included initialization script checks for at least 4 GB of memory, 2 CPUs, and 10 GB of disk space.
+- Access to the Woolworths products API on RapidAPI, including its search endpoint and an API key.
+- A Databricks SQL warehouse, server hostname, HTTP path, and access token.
+- Databricks permissions to use the warehouse, create the `woolis` schema and `products` table, and insert records in the active catalog.
+
+A host Python virtual environment is not needed for the Docker workflow.
+
+### 2. Clone the project
+
+```bash
+git clone https://github.com/aayush8/woolworths-api-to-databricks.git
+cd woolworths-api-to-databricks
+mkdir -p logs plugins config data
+```
+
+### 3. Declare the dotenv dependency
+
+Both `src/extract.py` and `src/load.py` import `dotenv`, but `python-dotenv` is currently commented out in `requirements.txt`. Uncomment it so the application declares the dependency explicitly:
 
 ```text
-Grocery List
-     │
-     ▼
-Woolworths Product API
-     │
-     ▼
-Python Requests
-     │
-     ▼
-JSON Response
-     │
-     ▼
-Pandas DataFrame
-     │
-     ▼
-Data Transformation
-     │
-     ├── Add extraction date
-     └── Add extraction time
-     │
-     ▼
-Databricks SQL
-     │
-     ▼
-Products Table
+pandas
+requests
+python-dotenv
+databricks-sql-connector
 ```
 
----
+The Dockerfile installs Airflow separately at the version supplied by its base image.
 
-## 🛠️ Technologies Used
+### 4. Configure environment variables
 
-- **Python**
-- **Pandas**
-- **Requests**
-- **python-dotenv**
-- **Databricks SQL Connector**
-- **Databricks**
-- **SQL**
-- **Jupyter Notebook**
-- **Git & GitHub**
-- **REST API**
+Create `.env` in the repository root:
 
----
+```dotenv
+# Use 50000 for a local Docker Desktop setup on macOS.
+# On Linux, replace this with the output of: id -u
+AIRFLOW_UID=50000
 
-## 📂 Project Structure
-
-```text
-datbricks_for_woolis_grocery/
-│
-├── .gitignore
-├── databricks_info.py
-├── grocery_list.py
-├── main.ipynb
-└── product_info.py
-```
-
-### File Descriptions
-
-#### `grocery_list.py`
-
-Contains the grocery items that the pipeline uses as input.
-
-Example:
-
-```python
-def get_grocery_list():
-    return [
-        "Woolworths Full Cream Milk 3L",
-        "Woolworths Peanuts Unsalted 375g",
-        "Cloverdale Pure Honey Twist & Squeeze 375g",
-    ]
-```
-
-#### `product_info.py`
-
-Responsible for communicating with the product API.
-
-It:
-
-1. Sends a product name to the API.
-2. Retrieves the JSON response.
-3. Extracts product information.
-4. Converts the results into a Pandas DataFrame.
-5. Adds extraction date and time.
-6. Produces CSV-formatted data when required.
-
-#### `databricks_info.py`
-
-Contains the SQL generation logic used to create the `products` table and insert records into Databricks.
-
-The table columns are dynamically generated from the Pandas DataFrame.
-
-#### `main.ipynb`
-
-The main notebook that brings everything together.
-
-It:
-
-1. Loads environment variables.
-2. Retrieves the grocery list.
-3. Calls the product API.
-4. Creates a Pandas DataFrame.
-5. Connects to Databricks.
-6. Creates the `woolis` database.
-7. Creates the `products` table.
-8. Inserts the records.
-9. Queries the table.
-10. Converts the returned records back into a Pandas DataFrame.
-
----
-
-## 🔄 ETL Process
-
-### 1. Extract
-
-The grocery items are defined in `grocery_list.py`.
-
-For each grocery item, the project sends a request to the product API.
-
-```python
-response = requests.get(
-    os.getenv("API_URL"),
-    headers=headers,
-    params={"query": product_name}
-)
-```
-
-The API response is returned as JSON.
-
----
-
-### 2. Transform
-
-The API results are converted into a Pandas DataFrame.
-
-The pipeline also adds two metadata columns:
-
-```text
-date_retracted
-time_retracted
-```
-
-These columns record when the product information was retrieved.
-
-Example data:
-
-| product_name | product_brand | current_price | product_size | date_retracted |
-|---|---|---:|---|---|
-| Woolworths Whole Milk Full Cream Milk | Woolworths | 4.35 | 3L | 2026-08-27 |
-| Woolworths Peanuts Unsalted | Woolworths | 2.80 | 375g | 2026-08-27 |
-| Cloverdale Pure Honey Twist & Squeeze | Cloverdale | 3.30 | 375g | 2026-08-27 |
-
----
-
-### 3. Load
-
-The transformed DataFrame is loaded into Databricks.
-
-The project creates the database:
-
-```sql
-CREATE DATABASE IF NOT EXISTS woolis
-```
-
-It then creates a `products` table based on the DataFrame columns.
-
-Rows are inserted using parameterized SQL:
-
-```python
-for row in df.itertuples(index=False, name=None):
-    cursor.execute(
-        sql_commands(df, 2),
-        row
-    )
-```
-
-Finally, the pipeline queries the table and converts the returned records back into a Pandas DataFrame.
-
----
-
-## 🗄️ Databricks Architecture
-
-The current project uses the Databricks SQL Connector to communicate with Databricks.
-
-```text
-Python Application
-       │
-       │ Databricks SQL Connector
-       ▼
-Databricks
-       │
-       ▼
-woolis database
-       │
-       ▼
-products table
-```
-
-The Databricks connection uses:
-
-- Server hostname
-- HTTP path
-- Access token
-
-These credentials are loaded from environment variables rather than being hard-coded into the Python source code.
-
----
-
-## 🔐 Environment Variables
-
-Create a `.env` file locally containing your API and Databricks credentials.
-
-Example:
-
-```text
-API_URL=your_api_url
+# Use the actual search endpoint shown in your RapidAPI subscription.
+API_URL=https://your-api-host/your-search-endpoint
 RAPIDAPI_KEY=your_rapidapi_key
 
-DATABRICKS_SERVER_HOSTNAME=your_server_hostname
-DATABRICKS_HTTP_PATH=your_http_path
-DATABRICKS_ACCESS_TOKEN=your_access_token
+# Hostname only: do not include https://.
+DATABRICKS_SERVER_HOSTNAME=your-workspace-hostname
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/your-warehouse-id
+DATABRICKS_ACCESS_TOKEN=your_databricks_token
+
+# Local Airflow UI account created during initialization.
+_AIRFLOW_WWW_USER_USERNAME=airflow
+_AIRFLOW_WWW_USER_PASSWORD=choose_a_local_password
 ```
 
-The repository already includes `.env` in `.gitignore`.
+The extraction module fixes the `x-rapidapi-host` header to `woolworths-products-api.p.rapidapi.com`. The API URL must point to the matching service and accept the `query` parameter.
 
+**API key spelling:** Python reads `RAPIDAPI_KEY`. Compose currently also contains a misspelled `RAPIDDAPI_KEY` entry. Keep the correctly spelled variable in `.env`; Compose's `env_file` passes it to the containers. For consistency, replace the misspelled Compose entry with:
 
-## 📦 Installation
+```yaml
+RAPIDAPI_KEY: ${RAPIDAPI_KEY:-}
+```
 
-Clone the repository:
+The repository excludes `.env` from Git and Docker's build context. Compose supplies the variables to containers at runtime.
+
+### 5. Build and initialize
+
+Run these commands from the repository root:
 
 ```bash
-git clone https://github.com/aayush8/datbricks_for_woolis_grocery.git
+# Build the custom Airflow image with project dependencies.
+docker compose build
+
+# Initialize Airflow's metadata database and create the UI account.
+docker compose up airflow-init
 ```
 
-Move into the project:
+Wait for `airflow-init` to finish successfully before starting the remaining services. A successful initialization container exits; it is not a continuously running service.
+
+### 6. Start Airflow
 
 ```bash
-cd datbricks_for_woolis_grocery
+docker compose up -d
+docker compose ps
 ```
 
-Create a virtual environment:
+Open [http://localhost:8080](http://localhost:8080) and sign in using the account configured in `.env`. If account variables are omitted, the Compose defaults are `airflow` / `airflow`.
+
+The default stack runs the API server, scheduler, DAG processor, Celery worker, triggerer, PostgreSQL, and Redis. The CLI and Flower services use optional profiles.
+
+Compose environment settings override several values in `config/airflow.cfg`: the Docker stack uses **CeleryExecutor**, **PostgreSQL**, **FAB authentication**, and **disabled example DAGs**, even though the committed config file contains different defaults.
+
+### 7. Trigger the pipeline
+
+In the Airflow UI, find `etl_pipeline_woolworths`, unpause it, and trigger a run. Inspect each task's logs as the run progresses.
+
+You can also use the terminal:
 
 ```bash
-python -m venv venv
+docker compose exec airflow-scheduler airflow dags list
+docker compose exec airflow-scheduler airflow dags unpause etl_pipeline_woolworths
+docker compose exec airflow-scheduler airflow dags trigger etl_pipeline_woolworths
 ```
 
-Activate it on macOS/Linux:
+Unpausing does not create a recurring schedule. Each run must be triggered manually.
+
+### 8. Verify the warehouse data
+
+In Databricks SQL, select the same catalog used by the connector and run:
+
+```sql
+SELECT *
+FROM woolis.products
+LIMIT 100;
+
+SELECT date_retracted, COUNT(*) AS row_count
+FROM woolis.products
+GROUP BY date_retracted
+ORDER BY date_retracted DESC;
+```
+
+**Verify the table even when Airflow shows success.** The current `load()` function catches exceptions and returns an error string, while `load_task` ignores the return value. A failed database operation can therefore leave the task marked successful.
+
+## Data and loading behavior
+
+API response fields determine the DataFrame columns. These may include barcode, product name, brand, price, size, and product URL; the source schema is not fixed in the code.
+
+The transformation adds two columns, retaining the names used by the implementation:
+
+| Column | Format | Meaning |
+| --- | --- | --- |
+| `date_retracted` | `YYYY-MM-DD` | Date when transformation runs |
+| `time_retracted` | `HH:MM:SS` | Time when transformation runs |
+
+These values use `datetime.now()` in the executing environment. They are batch transformation timestamps, not individual API request timestamps, and do not include timezone information.
+
+The loader:
+
+1. Creates the `woolis` schema if it does not exist.
+2. Selects that schema in the connection's current catalog.
+3. Creates `products` if absent, declaring every DataFrame column as SQL `STRING`.
+4. Inserts rows individually using parameterized `?` placeholders.
+5. Closes the cursor and connection.
+
+Every run **appends rows**. The implementation does not deduplicate, upsert, evolve an existing table's schema, or enforce native numeric/date types. Failed or repeated runs may produce partial or duplicate data. Price analysis requires appropriate SQL casts.
+
+## Run the Python ETL without Airflow
+
+For a direct run on macOS/Linux, configure the same `.env` file and create a separate Python environment:
 
 ```bash
-source venv/bin/activate
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt python-dotenv
 ```
 
-Install the required Python packages:
+Run this from the repository root:
 
 ```bash
-pip install pandas requests python-dotenv databricks-sql-connector
+python - <<'PY'
+from grocery_list import get_grocery_list
+from src.extract import extract
+from src.etl_transform import transform
+from src.load import load
+
+records = extract(get_grocery_list())
+if not records:
+    raise RuntimeError("No product records were extracted")
+
+print(load(transform(records), view=True))
+PY
 ```
 
----
+This writes to Databricks and prints the returned table or error message. The notebook `main.ipynb` uses the same functions and can be opened with a separately installed Jupyter environment.
 
-## ▶️ Running the Project
+`scripts/airflow.sh` is an existing local-development helper, not a Docker startup script. It assumes a prepared `.venv` containing Airflow, `jq`, macOS `pbcopy`, and an already generated Simple Auth Manager password file. `requirements.txt` alone does not install local Airflow.
 
-Create your `.env` file and add the required API and Databricks credentials.
+## Everyday commands
 
-Then open:
+```bash
+# View service status, including exited containers.
+docker compose ps -a
 
-```text
-main.ipynb
+# Follow logs; press Ctrl+C to stop following.
+docker compose logs -f airflow-worker airflow-dag-processor
+
+# Check DAG import errors.
+docker compose exec airflow-scheduler airflow dags list-import-errors
+
+# Rebuild and recreate services after dependency or Dockerfile changes.
+docker compose up -d --build
+
+# Stop containers while retaining them.
+docker compose stop
+
+# Remove project containers and networks; retain the named database volume.
+docker compose down
 ```
 
-Run the notebook cells in order.
+The DAG, `src/`, and `grocery_list.py` are bind-mounted into the containers, so source edits are visible without rebuilding the image. Allow time for the DAG processor to refresh its definition. Changing `.env` requires recreating services with `docker compose up -d`.
 
-The pipeline will:
+## Troubleshooting
 
-```text
-1. Load environment variables
-        ↓
-2. Load grocery list
-        ↓
-3. Query product API
-        ↓
-4. Extract product information
-        ↓
-5. Create Pandas DataFrame
-        ↓
-6. Add extraction timestamp
-        ↓
-7. Connect to Databricks
-        ↓
-8. Create woolis database
-        ↓
-9. Create products table
-        ↓
-10. Insert product records
-        ↓
-11. Query records from Databricks
-```
+| Symptom | Check |
+| --- | --- |
+| DAG is missing | Inspect DAG processor logs and `airflow dags list-import-errors`; confirm imports and mounts |
+| `No module named dotenv` | Declare `python-dotenv` in `requirements.txt` and rebuild the image |
+| API returns an authentication error | Check `RAPIDAPI_KEY`, subscription access, endpoint, and the fixed host header |
+| Extraction raises an index/type error | The code assumes a nonempty `results` list in every accepted response |
+| UI cannot use port 8080 | Stop the existing local Airflow process or change Compose's host port mapping |
+| Airflow is green but data is missing | Check Databricks credentials, warehouse permissions, and the loader's swallowed exceptions |
+| Inserts fail after response fields change | Compare the existing table schema and column order with the DataFrame |
 
----
+## Current limitations and next steps
 
-## 📊 Data Collected
+This is a learning project with a local development deployment. The README is based on source inspection; startup and external API/warehouse execution have not been independently verified as part of this documentation update.
 
-The product API currently provides information such as:
+- Raise load exceptions so Airflow can report failures and apply retries.
+- Add HTTP timeouts, retry/backoff handling, and validation for missing or empty API results. Non-200 responses are currently printed and skipped.
+- Validate that the first search result matches the requested grocery item.
+- Use explicit destination columns, typed schemas, and a deduplication strategy.
+- Move larger task payloads to external storage and pass references through XCom.
+- Pin application dependencies and add automated validation for the ETL behavior.
+- Remove generated logs and runtime secrets from tracked configuration before sharing a deployment configuration. The checked-in configuration includes authentication secret values, and Compose supplies a default JWT secret.
 
-- Barcode
-- Product name
-- Product brand
-- Current price
-- Product size
-- Product URL
+## Author
 
-The pipeline also adds:
-
-- Extraction date
-- Extraction time
-
-This makes the project suitable for eventually tracking **grocery price changes over time**.
-
----
-
-
-## 🎯 Project Objective
-
-The primary objective of this project is to gain practical experience building a complete data pipeline using modern data engineering tools.
-
-The project demonstrates how raw data can move through the following stages:
-
-```text
-Source
-  ↓
-Extraction
-  ↓
-Transformation
-  ↓
-Loading
-  ↓
-Storage
-  ↓
-Querying
-```
-
-It provides hands-on experience with APIs, Python, Pandas, SQL, Databricks, environment variables, and Git/GitHub.
-
----
-
-## 👤 Author
-
-**Aayush Kharel**
-
-GitHub: [aayush8](https://github.com/aayush8)
-
----
-
-## 📌 Project Status
-
-**Status:** 🟢 Working prototype
-
-The current version successfully demonstrates an API → Pandas → Databricks data pipeline.
+**Aayush Kharel** — [GitHub](https://github.com/aayush8)
