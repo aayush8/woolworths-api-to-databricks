@@ -1,0 +1,21 @@
+# Local Python environments
+.venv/
+.benv/
+venv/
+
+# Git history
+.git/
+
+# Secrets
+.env
+.env.*
+
+# Generated files
+__pycache__/
+*.pyc
+logs/
+data/
+*.db
+
+# macOS metadata
+.DS_Store
