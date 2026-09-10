@@ -4,5 +4,6 @@ src/__pycache__/
 .venv/
 airflow_home/
 dags/__pycache__/
-logs/
 data/
+logs/
+
